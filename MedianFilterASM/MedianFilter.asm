@@ -7,6 +7,7 @@
 %define R_C R13
 %define R_I R14
 %define R_J R15
+%define XMM_Mask XMM9
 %define WINDOW_SIZE 3
 
 section .data
@@ -17,10 +18,10 @@ section .data
     x2 times 16 db 0
     x3 times 16 db 0
     temp dd 0.0, 0.0, 0.0, 0.0
-    src db 1, 2, 3, 4, \
+    src db 4, 3, 2, 1, \
+           1, 2, 3, 4, \
            5, 6, 7, 8, \
-           9, 10, 11, 12, \
-           13, 14, 15, 16
+           8, 7, 6, 5
     dst times 16 db 0
 
 section .text
@@ -47,15 +48,19 @@ main:
 filter:
     push rbp
     mov rbp, rsp; for correct debugging
+    
+    movups XMM_Mask, [MASK]
 
-    xor R_C, R_C
-    channelsLoop:
+
         
         xor R_Y, R_Y
         columnLoop:
         
             xor R_X, R_X
             rowLoop:
+            
+                xor R_C, R_C
+                channelsLoop:
 
                 call add_to_window
                 movups [x0], xmm0  
@@ -88,6 +93,11 @@ filter:
                 mov [rdi], bl
                 sub rdi, rax
                 
+                ;koniec pętli po kanałach
+                inc R_C
+                cmp R_C, R_Channels
+                jne channelsLoop
+                
             inc R_X
             cmp R_X, R_Width
             jne rowLoop
@@ -96,26 +106,14 @@ filter:
         cmp R_Y, R_Height
         jne columnLoop
         
-    ;koniec pętli po kanałach
-    inc R_C
-    cmp R_C, R_Channels
-    jne channelsLoop
     
     pop rbp
 ret
 
 clampI_procedure:
-                cmp  R_I, R_Width
-	        jae  clampI
-	        clampI_finished:
-ret
-
-clampJ_procedure:
-                cmp  R_J, R_Height
-	        jae  clampJ
-	        clampJ_finished:
-ret
-
+    cmp  R_I, R_Width
+    jae  clampI
+    ret
 clampI:   
     ;flagi ustawione w cmp rax, r12
 
@@ -123,13 +121,17 @@ clampI:
 
     lea    R_I, [R_Width - 1]  ;nie zmienia flag
     cmovl  R_I, rbx     ; rax=0 jesli POPRZEDNI rax < R_srcWidth. 
-jmp  clampI_finished
+ret
 
+clampJ_procedure:
+    cmp  R_J, R_Height
+    jae  clampJ
+    ret
 clampJ:   
     mov ebx, 0        
     lea    R_J, [R_Height - 1]
     cmovl  R_J, rbx
-jmp  clampJ_finished
+ret
 
     
 mediana: 
@@ -159,9 +161,7 @@ mediana:
     
     movaps xmm1, xmm0
     movups [x1], xmm1
-    movups xmm3, [MASK]
-    movups [x3], xmm3
-    pand xmm1, xmm3
+    pand xmm1, XMM_Mask
     movups [x1], xmm1
     pxor xmm3, xmm3
     psadbw xmm1, xmm3
@@ -172,14 +172,14 @@ mediana:
     add rcx, rdx
     pextrb rdx, xmm1, 8
     add rcx, rdx    
+    
     ;wyzeruj max elementy w xmm0
     pandn xmm0, xmm2
-    
-        
+         
     movups [x0], xmm0
 ret
     
-    add_to_window:
+add_to_window:
  ;zerujemy rejestr okna
             pxor xmm0, xmm0
                         
